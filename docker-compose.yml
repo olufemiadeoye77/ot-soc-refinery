@@ -1,0 +1,82 @@
+# OT SOC refinery sketch.
+# This is the architecture, not the full deployment.
+# Next session: Dockerfiles for refinery-simulator and ai-anomaly-agent,
+# plus the Suricata rules and Wazuh rule files.
+
+services:
+  # --- OT ZONE ---
+  openplc:
+    image: openplc/openplc:latest
+    ports:
+      - "8080:8080"
+    networks:
+      - ot_zone
+
+  refinery-simulator:
+    build: ./refinery-simulator
+    ports:
+      - "5020:5020"
+    networks:
+      - ot_zone
+    environment:
+      - TICK_INTERVAL=1.0
+
+  # --- OT DMZ ---
+  suricata:
+    image: jasonish/suricata:latest
+    network_mode: host
+    volumes:
+      - ./suricata/rules:/etc/suricata/rules:ro
+      - /var/ot/telemetry/suricata:/var/log/suricata
+    command: ["-i", "eth0"]
+
+  zeek:
+    image: zeek/zeek:latest
+    network_mode: host
+    volumes:
+      - /var/ot/telemetry/zeek:/var/log/zeek
+
+  ai-anomaly-agent:
+    build: ./ai-anomaly-agent
+    networks:
+      - ot_dmz
+    volumes:
+      - /var/ot/telemetry:/var/ot/telemetry:ro
+    environment:
+      - LOG_PATH=/var/ot/telemetry/zeek/conn.log
+
+  # --- IT ZONE ---
+  wazuh-manager:
+    image: wazuh/wazuh-manager:latest
+    ports:
+      - "55000:55000"
+      - "15601:5601"
+    networks:
+      - it_zone
+    volumes:
+      - ./wazuh/rules:/var/ossec/etc/rules:ro
+
+  # --- AI triage (sketch, not implemented) ---
+  ollama:
+    image: ollama/ollama:latest
+    networks:
+      - it_zone
+
+  ai-triage-agent:
+    build: ./ai-triage-agent
+    networks:
+      - it_zone
+    depends_on:
+      - wazuh-manager
+      - ollama
+    environment:
+      - WAZUH_URL=https://wazuh-manager:55000
+      - OLLAMA_URL=http://ollama:11434
+
+networks:
+  ot_zone:
+    driver: bridge
+  ot_dmz:
+    driver: bridge
+  it_zone:
+    driver: bridge
