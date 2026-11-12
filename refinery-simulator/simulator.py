@@ -1,36 +1,40 @@
-"""Refinery pump station Modbus simulator.
+"""Refinery pump station Modbus/TCP simulator.
 
-Models a solvent-extraction pump station with two pumps, one tank, and
-one outlet valve. Exposes Modbus/TCP registers that an OpenPLC instance
-or an attacker can read and write.
+Runs a Modbus server on port 5020. Reads return live process state;
+writes update the simulated process.
 
 Register map:
   Holding Registers (read/write):
     40001 - Pump 1 speed setpoint (0-100 %)
     40002 - Pump 2 speed setpoint (0-100 %)
     40003 - Outlet valve position (0=closed, 1=open)
-    40004 - Emergency stop command (0=run, 1=stop)
+    40004 - Emergency stop (0=run, 1=stop)
 
   Input Registers (read-only):
     30001 - Tank level (%)
-    30002 - Pump 1 current (Amps)
-    30003 - Pump 2 current (Amps)
-    30004 - Outlet flow rate (m3/h)
+    30002 - Pump 1 current (A)
+    30003 - Pump 2 current (A)
+    30004 - Outlet flow (m3/h)
     30005 - Tank temperature (C)
-
-This is a simulation. Not connected to real equipment.
 """
-
 from __future__ import annotations
 
 import asyncio
+import os
 import random
+import signal
 from dataclasses import dataclass, field
+
+from pymodbus.datastore import (
+    ModbusSequentialDataBlock,
+    ModbusServerContext,
+    ModbusSlaveContext,
+)
+from pymodbus.server import ModbusTcpServer
 
 
 @dataclass
 class ProcessState:
-    """Live state of the pump station. Updated every tick."""
     tank_level_pct: float = 60.0
     pump1_speed_pct: int = 40
     pump2_speed_pct: int = 40
@@ -44,54 +48,88 @@ class ProcessState:
 
 
 def tick(state: ProcessState, dt_seconds: float = 1.0) -> None:
-    """Advance the physical simulation by one time step."""
     if state.estop:
         state.pump1_speed_pct = 0
         state.pump2_speed_pct = 0
         state.valve_open = 0
 
-    # Inflow: assume ~2 %/s at full pump speed (both pumps combined)
-    inflow_pct_per_s = (state.pump1_speed_pct + state.pump2_speed_pct) / 200.0
-    # Outflow: assume 1 %/s when valve is open
-    outflow_pct_per_s = 1.0 if state.valve_open else 0.0
+    inflow = (state.pump1_speed_pct + state.pump2_speed_pct) / 200.0
+    outflow = 1.0 if state.valve_open else 0.0
+    state.tank_level_pct = max(
+        0.0, min(100.0, state.tank_level_pct + (inflow - outflow) * dt_seconds)
+    )
 
-    delta = (inflow_pct_per_s - outflow_pct_per_s) * dt_seconds
-    state.tank_level_pct = max(0.0, min(100.0, state.tank_level_pct + delta))
-
-    # Current draw proportional to speed, with noise
     state.pump1_current_a = (state.pump1_speed_pct / 100.0) * 12.0 + random.uniform(-0.3, 0.3)
     state.pump2_current_a = (state.pump2_speed_pct / 100.0) * 12.0 + random.uniform(-0.3, 0.3)
-
-    # Outlet flow rate
     state.outlet_flow_m3h = 45.0 if state.valve_open else 0.0
-
-    # Tank temperature drifts toward 65 C with noise
     state.tank_temp_c += (65.0 - state.tank_temp_c) * 0.01 + random.uniform(-0.1, 0.1)
 
-    # Log a snapshot for offline analysis
-    state.history.append({
-        "tank_level_pct": round(state.tank_level_pct, 2),
-        "pump1_speed_pct": state.pump1_speed_pct,
-        "pump2_speed_pct": state.pump2_speed_pct,
-        "valve_open": state.valve_open,
-        "pump1_current_a": round(state.pump1_current_a, 2),
-        "outlet_flow_m3h": state.outlet_flow_m3h,
-    })
+
+def build_context(state: ProcessState) -> ModbusServerContext:
+    """Wire the process state into a Modbus data context."""
+    holding = ModbusSequentialDataBlock(0, [0] * 20)
+    holding.setValues(1, [state.pump1_speed_pct])
+    holding.setValues(2, [state.pump2_speed_pct])
+    holding.setValues(3, [state.valve_open])
+    holding.setValues(4, [state.estop])
+
+    inputs = ModbusSequentialDataBlock(0, [0] * 20)
+    inputs.setValues(1, [int(state.tank_level_pct)])
+    inputs.setValues(2, [int(state.pump1_current_a * 10)])
+    inputs.setValues(3, [int(state.pump2_current_a * 10)])
+    inputs.setValues(4, [int(state.outlet_flow_m3h)])
+    inputs.setValues(5, [int(state.tank_temp_c)])
+
+    slave = ModbusSlaveContext(hr=holding, ir=inputs, zero_mode=True)
+    return ModbusServerContext(slaves=slave, single=True)
 
 
-async def run_simulation(state: ProcessState, interval_seconds: float = 1.0) -> None:
-    """Run the simulation loop forever."""
+def sync_context(context: ModbusServerContext, state: ProcessState) -> None:
+    """Copy process state into the Modbus register block each tick."""
+    slave = context[0]
+    # Process the writes the PLC or attacker performed last tick
+    state.pump1_speed_pct = slave.getValues(3, 1)[0]
+    state.pump2_speed_pct = slave.getValues(3, 2)[0]
+    state.valve_open = slave.getValues(3, 3)[0]
+    state.estop = slave.getValues(3, 4)[0]
+
+    # Advance the physical model
+    tick(state)
+
+    # Reflect process outputs back to input registers
+    slave.setValues(4, 1, [int(state.tank_level_pct)])
+    slave.setValues(4, 2, [int(state.pump1_current_a * 10)])
+    slave.setValues(4, 3, [int(state.pump2_current_a * 10)])
+    slave.setValues(4, 4, [int(state.outlet_flow_m3h)])
+    slave.setValues(4, 5, [int(state.tank_temp_c)])
+
+
+async def sim_loop(context: ModbusServerContext, state: ProcessState, interval: float) -> None:
     while True:
-        tick(state, dt_seconds=interval_seconds)
-        await asyncio.sleep(interval_seconds)
+        sync_context(context, state)
+        await asyncio.sleep(interval)
+
+
+async def main() -> None:
+    port = int(os.environ.get("MODBUS_PORT", "5020"))
+    interval = float(os.environ.get("TICK_INTERVAL", "1.0"))
+    state = ProcessState()
+    context = build_context(state)
+
+    print(f"[simulator] binding Modbus/TCP on 0.0.0.0:{port}", flush=True)
+    print(f"[simulator] tick interval {interval}s", flush=True)
+
+    server = ModbusTcpServer(context=context, address=("0.0.0.0", port))
+    loop_task = asyncio.create_task(sim_loop(context, state, interval))
+
+    try:
+        await server.serve_forever()
+    finally:
+        loop_task.cancel()
 
 
 if __name__ == "__main__":
-    state = ProcessState()
-    print("Simulating 10 ticks to verify logic...")
-    for _ in range(10):
-        tick(state)
-        print(f"  tank={state.tank_level_pct:.1f}%  "
-              f"pump1={state.pump1_speed_pct}%  "
-              f"flow={state.outlet_flow_m3h:.1f} m3/h")
-    print("Simulator logic OK. Modbus server binding comes next session.")
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
