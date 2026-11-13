@@ -39,3 +39,20 @@ Both are standalone Python sketches. No Docker required to verify the logic.
 - IEC 62443 zones and conduits (network segmentation above)
 - Purdue model (OT zone = Level 1/2, DMZ = 3.5, SOC = 4/5)
 - MITRE ATT&CK for ICS (attack scenarios in later sessions)
+## Phase 2a - Simulator containerized
+
+The refinery Modbus simulator is containerized and verified end-to-end.
+
+Run:
+    docker compose build refinery-simulator
+    docker compose up -d refinery-simulator
+
+Test:
+    python scripts/test-modbus-client.py 127.0.0.1 5020
+
+Expected: pump1 setpoint 40% -> write HR 40001=100 -> pump1 current rises ~4.5 A to ~11.9 A.
+
+Notes:
+- pymodbus pinned to ==3.5.4 in both requirements files
+- Simulator listens on 0.0.0.0:5020, published to host on 127.0.0.1:5020
+- Known cosmetic: tank level drains to 0% because outflow > inflow at 40% pump speed
