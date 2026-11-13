@@ -12,4 +12,4 @@ ENV ALERT_LOG=/var/ot/telemetry/ai-anomaly/alerts.jsonl
 
 RUN mkdir -p /var/ot/telemetry/ai-anomaly
 
-CMD ["python", "-u", "agent.py"]
+CMD ["python", "-u", "agent.py", "/var/ot/telemetry/zeek/conn.log"]

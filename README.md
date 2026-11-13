@@ -56,3 +56,22 @@ Notes:
 - pymodbus pinned to ==3.5.4 in both requirements files
 - Simulator listens on 0.0.0.0:5020, published to host on 127.0.0.1:5020
 - Known cosmetic: tank level drains to 0% because outflow > inflow at 40% pump speed
+## Phase 2b - AI anomaly agent containerized
+
+The ai-anomaly-agent is built and verified in sketch mode (synthetic events).
+
+Build:
+    docker compose build ai-anomaly-agent
+
+Run:
+    docker run --rm ot-soc-refinery-ai-anomaly-agent
+
+Expected: three JSON alerts - first-ever write (high), write burst x11 (critical),
+write burst x12 (critical). 140 normal reads and 5 attacker reads produce no alerts.
+
+Notes:
+- Agent currently reads Zeek conn.log JSON lines (Phase B wires real Zeek traffic)
+- Falls back to sketch mode when the log is absent
+- scikit-learn and numpy are pinned in requirements but not yet used by agent.py;
+  Isolation Forest training lands in Phase A2
+- First build is slow (~10-12 min) because scikit-learn/numpy compile from source
