@@ -1,0 +1,32 @@
+%YAML 1.1
+---
+vars:
+  address-groups:
+    HOME_NET: "[172.16.0.0/12]"
+    EXTERNAL_NET: "!$HOME_NET"
+default-rule-path: /etc/suricata/rules
+rule-files:
+  - modbus.rules
+outputs:
+  - eve-log:
+      enabled: yes
+      filetype: regular
+      filename: eve.json
+      types:
+        - alert
+        - flow
+        - modbus
+  - fast:
+      enabled: yes
+      filename: fast.log
+af-packet:
+  - interface: eth0
+    cluster-id: 99
+    cluster-type: cluster_flow
+    defrag: yes
+app-layer:
+  protocols:
+    modbus:
+      enabled: yes
+      detection-ports:
+        dp: 502

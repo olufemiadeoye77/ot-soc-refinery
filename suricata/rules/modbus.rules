@@ -1,0 +1,3 @@
+alert modbus any any -> any 502 (msg:"MODBUS write single register (fc6)"; modbus: function 6; sid:1000001; rev:1;)
+alert modbus any any -> any 502 (msg:"MODBUS write multiple registers (fc16)"; modbus: function 16; sid:1000002; rev:1;)
+alert modbus any any -> any 502 (msg:"MODBUS write to pump1 setpoint register"; modbus: access write holding, address 1; sid:1000003; rev:1;)

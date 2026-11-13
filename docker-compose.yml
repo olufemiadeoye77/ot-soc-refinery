@@ -20,21 +20,33 @@ services:
       - ot_zone
     environment:
       - TICK_INTERVAL=1.0
+      - MODBUS_PORT=5020
 
-  # --- OT DMZ ---
+  # --- OT DMZ (surveillance on the OT bridge) ---
   suricata:
     image: jasonish/suricata:latest
-    network_mode: host
+    networks:
+      - ot_zone
     volumes:
       - ./suricata/rules:/etc/suricata/rules:ro
-      - /var/ot/telemetry/suricata:/var/log/suricata
-    command: ["-i", "eth0"]
+      - ./suricata/suricata.yaml:/etc/suricata/suricata.yaml:ro
+      - ./telemetry/suricata:/var/log/suricata
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    command: ["-i", "eth0", "-c", "/etc/suricata/suricata.yaml"]
 
   zeek:
     image: zeek/zeek:latest
-    network_mode: host
+    networks:
+      - ot_zone
     volumes:
-      - /var/ot/telemetry/zeek:/var/log/zeek
+      - ./zeek/local.zeek:/usr/local/zeek/share/zeek/site/local.zeek:ro
+      - ./telemetry/zeek:/usr/local/zeek/logs/current
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    command: ["zeek", "-i", "eth0", "-e", "redef Log::default_logdir=\"/usr/local/zeek/logs\";", "local"]
 
   ai-anomaly-agent:
     build: ./ai-anomaly-agent

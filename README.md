@@ -95,3 +95,25 @@ Observed alerts:
 
 Known limitation: alerts fire every tick while the anomaly persists.
 Follow-up: transition-only alerting (edge detection).
+## Phase 2d - OT DMZ sensor stack (Suricata + Zeek)
+
+Two network sensors run on the ot_zone bridge alongside the refinery simulator.
+
+Suricata:
+- Custom Modbus rules in suricata/rules/modbus.rules (FC6 write, FC16 write, pump1 setpoint write)
+- Validated at startup: "3 rules successfully loaded, 3 signatures processed, 3 inspect application layer"
+- eve.json output mounted at telemetry/suricata/
+
+Zeek:
+- Base Modbus parser active, BPF filter "ip or not ip" initialized
+- Logs configured to telemetry/zeek/ (container path /usr/local/zeek/logs/current)
+
+Known limitation on Docker Desktop for Windows:
+- Container-to-container unicast traffic is not exposed to a sniffing container on the bridge
+- netshoot capture on ot_zone returned "0 packets captured" while Modbus traffic was flowing
+- On a Linux Docker host, Suricata and Zeek on the same bridge capture this traffic live
+- The AI anomaly agent (phase 2c) provides real-time detection in both environments
+
+Proof artifacts:
+- Suricata rule load: docker compose logs suricata | grep "rules successfully loaded"
+- Zeek BPF: docker exec ot-soc-refinery-zeek-1 cat /usr/local/zeek/logs/packet_filter.log
