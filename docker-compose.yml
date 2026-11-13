@@ -39,11 +39,14 @@ services:
   ai-anomaly-agent:
     build: ./ai-anomaly-agent
     networks:
+      - ot_zone
       - ot_dmz
     volumes:
       - /var/ot/telemetry:/var/ot/telemetry:ro
     environment:
       - LOG_PATH=/var/ot/telemetry/zeek/conn.log
+      - MODBUS_HOST=refinery-simulator
+      - MODBUS_PORT=5020
 
   # --- IT ZONE ---
   wazuh-manager:

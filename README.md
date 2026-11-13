@@ -75,3 +75,23 @@ Notes:
 - scikit-learn and numpy are pinned in requirements but not yet used by agent.py;
   Isolation Forest training lands in Phase A2
 - First build is slow (~10-12 min) because scikit-learn/numpy compile from source
+## Phase 2c - Live Modbus polling
+
+The ai-anomaly-agent now polls the refinery simulator directly over Modbus/TCP.
+It learns a 30-tick baseline (setpoint, pump current, tank level), then flags:
+- setpoint drift > 20% from baseline mean (high)
+- pump1 current > baseline mean + 3 sigma (critical)
+
+Run:
+    docker compose up -d refinery-simulator
+    docker compose up ai-anomaly-agent
+
+Trigger (in a second terminal):
+    python scripts/test-modbus-client.py 127.0.0.1 5020
+
+Observed alerts:
+    pump1 setpoint drift: 40% -> 100%   (high)
+    pump1 current surge: 4.8 A -> 12.0 A  (critical)
+
+Known limitation: alerts fire every tick while the anomaly persists.
+Follow-up: transition-only alerting (edge detection).
