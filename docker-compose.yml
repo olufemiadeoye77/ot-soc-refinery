@@ -70,6 +70,9 @@ services:
       - it_zone
     volumes:
       - ./wazuh/rules:/var/ossec/etc/rules:ro
+      - ./wazuh/decoders:/var/ossec/etc/decoders:ro
+      - ./wazuh/conf.d:/var/ossec/etc/conf.d:ro
+      - ./telemetry/ai-anomaly:/var/ot/telemetry/ai-anomaly:ro
 
   # --- AI triage (sketch, not implemented) ---
   ollama:
