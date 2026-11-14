@@ -1,0 +1,36 @@
+<group name="ot_soc,ai_anomaly,">
+
+  <rule id="100201" level="10">
+    <decoded_as>ot_soc_ai_agent</decoded_as>
+    <field name="severity">high</field>
+    <description>OT SOC: AI anomaly agent flagged HIGH severity process anomaly</description>
+    <group>ot_process_anomaly,</group>
+  </rule>
+
+  <rule id="100202" level="14">
+    <decoded_as>ot_soc_ai_agent</decoded_as>
+    <field name="severity">critical</field>
+    <description>OT SOC: AI anomaly agent flagged CRITICAL severity process anomaly</description>
+    <group>ot_process_anomaly,critical,</group>
+  </rule>
+
+  <rule id="100203" level="12">
+    <if_sid>100201</if_sid>
+    <field name="reason">setpoint drift</field>
+    <description>OT SOC: pump setpoint drift detected</description>
+    <mitre>
+      <id>T0839</id>
+    </mitre>
+  </rule>
+
+  <rule id="100204" level="14">
+    <if_sid>100202</if_sid>
+    <field name="reason">current surge</field>
+    <description>OT SOC: pump current surge - possible unauthorized actuation</description>
+    <mitre>
+      <id>T0839</id>
+    </mitre>
+  </rule>
+
+</group>
+

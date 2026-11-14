@@ -1,0 +1,18 @@
+<!--
+  OT SOC decoder for AI anomaly agent events.
+  Payload after "process_anomaly " is a JSON object with keys in the
+  fixed order: severity, reason, src.
+  A single regex with three capture groups + matching <order> is the
+  correct Wazuh pattern (a decoder cannot extract three fields from
+  three separate <regex> lines; <regex> entries are alternatives).
+  Verified with: wazuh-logtest v4.14.9
+-->
+<decoder name="ot_soc_ai_agent">
+  <prematch>process_anomaly</prematch>
+</decoder>
+
+<decoder name="ot_soc_ai_agent_fields">
+  <parent>ot_soc_ai_agent</parent>
+  <regex type="pcre2">"severity"\s*:\s*"([^"]+)".*"reason"\s*:\s*"([^"]+)".*"src"\s*:\s*"([^"]+)"</regex>
+  <order>severity, reason, src</order>
+</decoder>
