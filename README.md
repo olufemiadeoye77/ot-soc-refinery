@@ -3,7 +3,7 @@
 Wazuh 4.14 decoders and rules for detecting AI-flagged process anomalies
 in industrial control environments (OT / ICS).
 
-![Pipeline](docs/diagrams/pipeline.svg)
+**Status:** verified end-to-end — real alerts indexed in the Wazuh dashboard.
 
 ---
 
@@ -13,9 +13,11 @@ in industrial control environments (OT / ICS).
 |------|---------|
 | `wazuh/decoders/ot_soc_decoders.xml` | Decoder for `process_anomaly` log lines emitted by the OT SOC AI anomaly agent |
 | `wazuh/rules/ot_soc_rules.xml` | Detection rules mapping to `severity` and `reason` fields |
+| `wazuh/conf.d/ot_soc_localfile.conf` | Reference `<localfile>` block (Wazuh 4.x requires it in `ossec.conf` directly — see §10 item 8) |
 | `tests/expected-results.md` | `wazuh-logtest` regression cases (3 cases, all passing) |
-| `docs/diagrams/` | Pipeline, decoder-flow, and rule-tree diagrams |
-| `docs/report.md` | Verification report with screenshots and findings |
+| `docs/report.md` | Verification report: architecture, decoder flow, MITRE evidence, lessons learned |
+| `docs/evidence-alert-100204.txt` | Raw `alerts.log` excerpt — CRITICAL / current-surge alert |
+| `docs/evidence-alert-100203.txt` | Raw `alerts.log` excerpt — HIGH / setpoint-drift alert |
 
 ---
 
@@ -42,14 +44,14 @@ required by the decoder (see §4).
 
 ```mermaid
 flowchart LR
-    A[AI anomaly agent] -->|"process_anomaly {...}"| B[wazuh-logcollector]
+    A[AI anomaly agent] -->|"process_anomaly"| B[wazuh-logcollector]
     B --> C[wazuh-analysisd]
-    C --> D{Decoder<br/>ot_soc_ai_agent}
-    D -->|severity, reason, src| E{Rules}
-    E -->|severity=high| F[100201<br/>level 10]
-    E -->|severity=critical| G[100202<br/>level 14]
-    F -->|reason=setpoint drift| H[100203<br/>level 12 · T0839]
-    G -->|reason=current surge| I[100204<br/>level 14 · T0839]
+    C --> D{Decoder ot_soc_ai_agent}
+    D -->|"severity, reason, src"| E{Rules}
+    E -->|"severity=high"| F["100201 level 10"]
+    E -->|"severity=critical"| G["100202 level 14"]
+    F -->|"reason=setpoint drift"| H["100203 level 12 T0839"]
+    G -->|"reason=current surge"| I["100204 level 14 T0839"]
     F --> J[(wazuh-indexer)]
     G --> J
     H --> J
@@ -61,15 +63,15 @@ flowchart LR
 
 ## 4. Decoder design — why one regex, not three
 
-### ❌ What does NOT work (three variants tried)
+### What does NOT work (three variants tried)
 
 | Pattern | What happens | Why |
 |---------|-------------|-----|
-| Three sibling child decoders | Only the **first** matching child runs; other fields silently dropped | Wazuh evaluates siblings once; first match wins |
-| Three chained `<regex>` in one child | Decoder rejected silently; **no fields at all** | `<regex>` entries are alternatives, not sequential passes; `<order>` count must match capture-group count of the *winning* regex |
+| Three sibling child decoders | Only the first matching child runs; other fields silently dropped | Wazuh evaluates siblings once; first match wins |
+| Three chained `<regex>` in one child | Decoder rejected silently; no fields at all | `<regex>` entries are alternatives, not sequential passes; `<order>` count must match capture-group count of the winning regex |
 | `<order>json</order>` in a custom decoder | Stores the whole JSON as one literal field named `json`; does not expand keys | Custom decoders don't invoke Wazuh's built-in JSON parser |
 
-### ✅ What DOES work
+### What DOES work
 
 ```xml
 <decoder name="ot_soc_ai_agent">
@@ -93,13 +95,13 @@ sequenceDiagram
     participant Re as PCRE2 regex
     participant Out as Extracted fields
 
-    Log->>Dec: process_anomaly {"severity":"critical",...}
+    Log->>Dec: process_anomaly severity critical
     Dec->>Re: match
     Re-->>Dec: 3 capture groups
     Dec->>Out: severity=critical
     Dec->>Out: reason=current surge
     Dec->>Out: src=10.0.0.7
-    Note over Dec,Out: <order>severity, reason, src</order><br/>count matches → fields emitted
+    Note over Dec,Out: order has 3 names, count matches
 ```
 
 ---
@@ -108,11 +110,11 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    R1[Rule 1<br/>Generic syslog parent]
-    R201[100201 · level 10<br/>severity=high]
-    R202[100202 · level 14<br/>severity=critical]
-    R203[100203 · level 12<br/>reason=setpoint drift · T0839]
-    R204[100204 · level 14<br/>reason=current surge · T0839]
+    R1["Rule 1 Generic syslog parent"]
+    R201["100201 level 10 severity=high"]
+    R202["100202 level 14 severity=critical"]
+    R203["100203 level 12 reason=setpoint drift T0839"]
+    R204["100204 level 14 reason=current surge T0839"]
 
     R1 --> R201
     R1 --> R202
@@ -136,9 +138,9 @@ Child rules 100203 and 100204 use **exact** `<field>` matching on
 
 | Case | Input | Fields decoded | Rules fired | Alert | Result |
 |------|-------|---------------|-------------|-------|--------|
-| **A** | `severity=critical, reason=current surge, src=10.0.0.7` | severity ✅ reason ✅ src ✅ | 100202 + 100204 (level 14) | ✅ mail=True | **PASS** |
-| **B** | `severity=high, reason=setpoint drift, src=10.0.0.5` | severity ✅ reason ✅ src ✅ | 100201 + 100203 (level 12) | ✅ mail=True | **PASS** |
-| **C** | `severity=high, reason=unknown vibration, src=10.0.0.9` | severity ✅ reason ✅ src ✅ | 100201 only (level 10) | ✅ mail=False | **PASS** |
+| **A** | `severity=critical, reason=current surge, src=10.0.0.7` | severity OK / reason OK / src OK | 100202 + 100204 (level 14) | mail=True | **PASS** |
+| **B** | `severity=high, reason=setpoint drift, src=10.0.0.5` | severity OK / reason OK / src OK | 100201 + 100203 (level 12) | mail=True | **PASS** |
+| **C** | `severity=high, reason=unknown vibration, src=10.0.0.9` | severity OK / reason OK / src OK | 100201 only (level 10) | mail=False | **PASS** |
 
 Case C is the **false-positive guard**: an unrecognised `reason` must
 fire only the parent rule and **not** escalate to a child T0839 rule.
@@ -207,6 +209,33 @@ docker exec single-node-wazuh.manager-1 \
 
 Expected: no errors, `Total rules enabled: '8455'`.
 
+### 8.1 End-to-end verification (real ingestion)
+
+`wazuh-logtest` feeds analysisd directly and does not exercise
+logcollector. The real ingestion path was verified by writing log lines
+to the monitored file:
+
+```bash
+docker exec single-node-wazuh.manager-1 sh -c '
+cat > /var/ot/telemetry/ai-anomaly/alerts.jsonl <<EOF
+process_anomaly {"severity":"critical","reason":"current surge","src":"10.0.0.7"}
+process_anomaly {"severity":"high","reason":"setpoint drift","src":"10.0.0.5"}
+EOF
+'
+```
+
+**Both rules fired** and were indexed in the Wazuh dashboard:
+
+| rule.id | level | description | data.severity | data.reason | data.src |
+|---------|-------|-------------|---------------|-------------|----------|
+| 100204 | 14 | OT SOC: pump current surge - possible unauthorized actuation | critical | current surge | 10.0.0.7 |
+| 100203 | 12 | OT SOC: pump setpoint drift detected | high | setpoint drift | 10.0.0.5 |
+
+Raw evidence: `docs/evidence-alert-100204.txt`, `docs/evidence-alert-100203.txt`.
+
+This proves logcollector → decoder → rules → analysisd → indexer →
+dashboard all work end-to-end, not just in logtest.
+
 ---
 
 ## 9. Test
@@ -237,7 +266,7 @@ Expected Phase 3: rules **100202** and **100204** fire at level 14.
 
 ## 10. Lessons learned
 
-1. **"Decoder matched" ≠ "fields decoded."** Always inspect Phase 2, not
+1. **"Decoder matched" is not "fields decoded."** Always inspect Phase 2, not
    just Phase 3.
 2. **Multiple `<regex>` inside one decoder are alternatives, not
    sequential passes.** `<order>` count must equal the capture-group
@@ -251,6 +280,17 @@ Expected Phase 3: rules **100202** and **100204** fire at level 14.
 6. **Test the negative case.** Case C (non-matching reason) is more
    important than Cases A and B, because it proves the pipeline won't
    over-fire.
+7. **`<log_format>json</log_format>` requires the entire line to be
+   valid JSON.** If the log line has a prefix (e.g.
+   `process_anomaly {...}`), logcollector will silently drop the event
+   when using json format — no error at info level, no alert. Use
+   `<log_format>syslog</log_format>` and let the decoder's `<prematch>`
+   match the prefix.
+8. **Wazuh 4.14 does not support `<include>conf.d/*.conf</include>`.**
+   Drop-in configs are a Wazuh 5.x feature; in 4.14 the `<include>`
+   element is rejected with `ERROR: (1230): Invalid element in the
+   configuration: 'include'`. In 4.x, add `<localfile>` directly to
+   `ossec.conf`.
 
 ---
 
