@@ -1,1 +1,32 @@
-<paste the ASCII summary block here>
+┌──────────────────────────────────────────────────────────────────────┐
+│  OT SOC Detection Verification — Wazuh 4.14.9 — 2026-11-14           │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  Decoder: ot_soc_ai_agent      Rules: 100201..100204                 │
+│                                                                      │
+│  ┌────────────────────────────────────────────────────────────────┐  │
+│  │  CASE A: critical / current surge                              │  │
+│  │    severity=critical  ✅   reason=current surge  ✅            │  │
+│  │    src=10.0.0.7       ✅   rules: 100202 + 100204  ✅          │  │
+│  │    alert: YES  │  level: 14  │  T0839: warning (DB)            │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+│                                                                      │
+│  ┌────────────────────────────────────────────────────────────────┐  │
+│  │  CASE B: high / setpoint drift                                 │  │
+│  │    severity=high        ✅   reason=setpoint drift  ✅         │  │
+│  │    src=10.0.0.5         ✅   rules: 100201 + 100203  ✅        │  │
+│  │    alert: YES  │  level: 12  │  T0839: warning (DB)            │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+│                                                                      │
+│  ┌────────────────────────────────────────────────────────────────┐  │
+│  │  CASE C: high / unknown vibration  (FALSE-POSITIVE GUARD)      │  │
+│  │    severity=high        ✅   reason=unknown vibration  ✅      │  │
+│  │    src=10.0.0.9         ✅   rules: 100201 only  ✅            │  │
+│  │    alert: YES  │  level: 10  │  100203 correctly rejected      │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+│                                                                      │
+│  Overall:  ✅ 3 / 3 PASS                                             │
+│  Known limitation: MITRE T0839 (ICS) not in Wazuh Enterprise DB      │
+│  Mitigation: documented in README §7, correct ICS mapping retained   │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
